@@ -225,30 +225,87 @@ def collect_targets(args: argparse.Namespace, log) -> List[Target]:
     return unique
 
 
-# ── Dependency check ───────────────────────────────────────────────────────────
+# ── Dependency check & auto-install ───────────────────────────────────────────
+
+def _install_tool(tool: str, log) -> bool:
+    """
+    Try each install recipe for `tool` in order.
+    Returns True if the tool is on PATH after installation, False otherwise.
+    """
+    import shutil
+    import subprocess
+    from config import TOOL_INSTALL_RECIPES
+
+    recipes = TOOL_INSTALL_RECIPES.get(tool, [])
+    if not recipes:
+        log.warning("[install] No install recipe known for %s", tool)
+        return False
+
+    for cmd in recipes:
+        log.info("[install] Trying: %s", cmd)
+        try:
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode == 0 and shutil.which(tool):
+                log.info("[install] %s installed successfully via: %s", tool, cmd)
+                return True
+            if result.returncode != 0:
+                log.debug(
+                    "[install] Command failed (rc=%d): %s\n%s",
+                    result.returncode, cmd, result.stderr.strip()
+                )
+        except subprocess.TimeoutExpired:
+            log.warning("[install] Timed out: %s", cmd)
+        except Exception as exc:
+            log.debug("[install] Error running '%s': %s", cmd, exc)
+
+    log.warning("[install] All recipes failed for %s — it will be skipped", tool)
+    return False
+
 
 def check_dependencies(log) -> None:
     import shutil
     available = []
     missing   = []
+
     for tool in SUPPORTED_TOOLS:
         if shutil.which(tool):
             available.append(tool)
         else:
             missing.append(tool)
 
-    if available:
-        log.info("Available tools: %s", ", ".join(available))
     if missing:
-        log.warning(
-            "Missing tools (skipped): %s  "
-            "— Install them or use --tool to select available ones.",
+        log.info(
+            "Missing tool(s): %s — attempting automatic installation…",
             ", ".join(missing),
         )
+        still_missing = []
+        for tool in missing:
+            if _install_tool(tool, log):
+                available.append(tool)
+            else:
+                still_missing.append(tool)
+
+        if still_missing:
+            log.warning(
+                "Could not install: %s  "
+                "— these will be skipped. Install manually or use --tool.",
+                ", ".join(still_missing),
+            )
+
+    if available:
+        log.info("Available tools: %s", ", ".join(sorted(available)))
+
     if not available:
         log.error(
-            "No supported tools found on PATH. "
-            "Install at least one of: %s",
+            "No supported tools available after install attempts. "
+            "Manually install at least one of: %s",
             ", ".join(SUPPORTED_TOOLS),
         )
         sys.exit(1)
