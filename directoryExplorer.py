@@ -36,7 +36,7 @@ from config import (
 )
 from utils.logging_utils import setup_logging, get_logger
 from utils.network import validate_url, parse_targets_file, Target
-from wordlists.default import build_combined_wordlist
+from wordlists.default import build_combined_wordlist, WordlistResult
 from runner import run_scan
 from report import write_target_reports, write_master_reports
 
@@ -341,19 +341,22 @@ def main() -> None:
     # Check tool availability
     check_dependencies(log)
 
-    # Build combined wordlist (temp file)
-    log.info("Building wordlist…")
-    wordlist_path = build_combined_wordlist(
+    # Resolve wordlist (uses dicc.txt directly when possible — no temp copy)
+    log.info("Resolving wordlist…")
+    wl_result = build_combined_wordlist(
         custom_path=args.wordlist,
         extensions=args.extensions,
     )
-    log.info("Wordlist written to: %s", wordlist_path)
+    if wl_result.is_temp:
+        log.info("Merged wordlist: %s", wl_result.path)
+    else:
+        log.info("Wordlist: %s", wl_result.path)
 
     start_time = time.monotonic()
 
     try:
         # Run scan
-        master = run_scan(targets, args, wordlist_path)
+        master = run_scan(targets, args, wl_result.path)
 
         elapsed = time.monotonic() - start_time
         log.info(
@@ -370,11 +373,12 @@ def main() -> None:
         print("\n[!] Interrupted by user. Partial results may have been saved.")
         sys.exit(130)
     finally:
-        # Clean up temp wordlist
-        try:
-            os.unlink(wordlist_path)
-        except OSError:
-            pass
+        # Only delete the wordlist file if we created a temp copy
+        if wl_result.is_temp:
+            try:
+                os.unlink(wl_result.path)
+            except OSError:
+                pass
 
 
 def _generate_reports(master: dict, args: argparse.Namespace, log) -> None:

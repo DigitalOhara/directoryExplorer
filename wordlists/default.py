@@ -4,6 +4,7 @@ Built-in wordlist and sensitive-file checks.
 
 import tempfile
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
@@ -175,37 +176,61 @@ def find_dicc_txt() -> Optional[str]:
     return None
 
 
+@dataclass
+class WordlistResult:
+    path: str
+    is_temp: bool   # True → caller must delete after use; False → real file, do not delete
+
+
 def build_combined_wordlist(
     custom_path: Optional[str] = None,
     extensions: Optional[List[str]] = None,
-) -> str:
+) -> WordlistResult:
     """
-    Build the wordlist used by all tools.
+    Resolve the wordlist all tools will use.
 
-    Priority order:
-      1. Custom wordlist supplied via -w / --wordlist  (if given)
-      2. dirsearch's dicc.txt                          (if found on disk)
-      3. Built-in DEFAULT_WORDLIST + SENSITIVE_FILES   (always-available fallback)
+    Fast path (no temp file created):
+      • No -w given AND no extension expansion needed
+        → dicc.txt used directly (real path, is_temp=False)
 
-    When dicc.txt or a custom wordlist is used, SENSITIVE_FILES entries are
-    appended so sensitive-file checks are always included regardless of source.
-    The result is written to a temporary file whose path is returned.
-    The caller is responsible for deleting the temp file.
+    Merge path (temp file created, is_temp=True):
+      • Custom -w supplied  → custom file + missing sensitive entries + extensions
+      • No -w but extension expansion requested
+        → dicc.txt content + missing sensitive entries + expanded entries
+
+    "Missing sensitive entries" = SENSITIVE_FILES entries not already present
+    in whatever base wordlist was chosen, so they are always covered.
     """
     import sys
 
+    dicc = find_dicc_txt()
+
+    # ── Fast path: no custom wordlist, no extension expansion ──────────────────
+    if not custom_path and not extensions:
+        if dicc:
+            print(
+                f"[*] Wordlist: {dicc}  ({_count_lines(dicc)} entries)",
+                file=sys.stderr,
+            )
+            return WordlistResult(path=dicc, is_temp=False)
+        # No dicc.txt → write built-in list as temp file
+        print(
+            f"[*] dicc.txt not found — using built-in wordlist ({len(DEFAULT_WORDLIST)} entries)",
+            file=sys.stderr,
+        )
+        return WordlistResult(path=_write_temp(DEFAULT_WORDLIST + SENSITIVE_FILES), is_temp=True)
+
+    # ── Merge path ─────────────────────────────────────────────────────────────
     entries: List[str] = []
-    source: str = "built-in"
 
     if custom_path:
         custom_file = Path(custom_path)
         if custom_file.is_file():
-            with open(custom_file, "r", encoding="utf-8", errors="ignore") as fh:
-                for line in fh:
-                    word = line.strip()
-                    if word and not word.startswith("#"):
-                        entries.append(word)
-            source = str(custom_file)
+            entries = _read_wordlist(custom_file)
+            print(
+                f"[*] Wordlist: {custom_path}  ({len(entries)} entries, custom)",
+                file=sys.stderr,
+            )
         else:
             print(
                 f"[!] Custom wordlist not found: {custom_path} — falling back to dicc.txt / built-in",
@@ -213,26 +238,25 @@ def build_combined_wordlist(
             )
 
     if not entries:
-        dicc = find_dicc_txt()
         if dicc:
-            with open(dicc, "r", encoding="utf-8", errors="ignore") as fh:
-                for line in fh:
-                    word = line.strip()
-                    if word and not word.startswith("#"):
-                        entries.append(word)
-            source = dicc
-            print(f"[*] Using dirsearch wordlist: {dicc} ({len(entries)} entries)", file=sys.stderr)
+            entries = _read_wordlist(dicc)
+            print(
+                f"[*] Wordlist: {dicc}  ({len(entries)} entries, merging with extras)",
+                file=sys.stderr,
+            )
         else:
             entries = list(DEFAULT_WORDLIST)
-            source = "built-in"
             print(
-                "[*] dicc.txt not found — using built-in wordlist "
-                f"({len(entries)} entries)",
+                f"[*] dicc.txt not found — using built-in wordlist ({len(entries)} entries)",
                 file=sys.stderr,
             )
 
-    # Always append sensitive files (deduplicated below)
-    entries.extend(SENSITIVE_FILES)
+    # Append any sensitive files not already present
+    entries_set = set(entries)
+    for sf in SENSITIVE_FILES:
+        if sf not in entries_set:
+            entries.append(sf)
+            entries_set.add(sf)
 
     # Deduplicate while preserving order
     seen: set = set()
@@ -242,7 +266,7 @@ def build_combined_wordlist(
             seen.add(entry)
             unique.append(entry)
 
-    # Expand with extensions for extension-less entries
+    # Extension expansion
     if extensions:
         base_entries = list(unique)
         for word in base_entries:
@@ -254,9 +278,33 @@ def build_combined_wordlist(
                         seen.add(candidate)
                         unique.append(candidate)
 
+    return WordlistResult(path=_write_temp(unique), is_temp=True)
+
+
+# ── Internal helpers ───────────────────────────────────────────────────────────
+
+def _read_wordlist(path) -> List[str]:
+    entries = []
+    with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            word = line.strip()
+            if word and not word.startswith("#"):
+                entries.append(word)
+    return entries
+
+
+def _write_temp(entries: List[str]) -> str:
     tmp = tempfile.NamedTemporaryFile(
         mode="w", suffix=".txt", delete=False, prefix="de_wordlist_"
     )
-    tmp.write("\n".join(unique) + "\n")
+    tmp.write("\n".join(entries) + "\n")
     tmp.close()
     return tmp.name
+
+
+def _count_lines(path: str) -> int:
+    try:
+        with open(path, "rb") as fh:
+            return sum(1 for _ in fh)
+    except OSError:
+        return 0
