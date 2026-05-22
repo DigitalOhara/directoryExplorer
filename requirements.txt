@@ -1,0 +1,15 @@
+# directoryExplorer — Python dependencies
+# Install with: pip3 install -r requirements.txt
+
+# HTTP client for fingerprinting, robots.txt, and sitemap parsing
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Optional: faster favicon hashing (falls back to zlib CRC32 if absent)
+mmh3>=4.0.1
+
+# Optional: richer console output
+colorama>=0.4.6
+
+# Optional: progress bars
+tqdm>=4.66.0

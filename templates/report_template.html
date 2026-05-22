@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{TITLE}}</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --accent:   #58a6ff;
+      --green:    #3fb950;
+      --yellow:   #d29922;
+      --red:      #f85149;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --radius:   8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 20px; color: var(--accent); }
+    header .meta { color: var(--muted); font-size: 12px; }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+
+    /* Stat cards */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+    }
+    .stat-card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+    .stat-card .value { font-size: 26px; font-weight: 700; color: var(--accent); margin-top: 4px; }
+
+    /* Charts row */
+    .charts-row {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .chart-card h3 { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+
+    /* Target table (master only) */
+    .master-target-grid {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 28px;
+      overflow: hidden;
+    }
+    .master-target-grid h3 {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    /* Controls */
+    .controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .controls input[type=text] {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 7px 12px;
+      font-size: 13px;
+      width: 320px;
+      outline: none;
+    }
+    .controls input[type=text]:focus { border-color: var(--accent); }
+    .controls select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 7px 10px;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+    .btn {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: var(--radius);
+      padding: 7px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn:hover { opacity: .85; }
+    .btn.secondary {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    /* Data table */
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead {
+      background: #1c2128;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    th {
+      padding: 10px 14px;
+      text-align: left;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    th:hover { color: var(--accent); }
+    th::after { content: " ↕"; opacity: .4; }
+    th.asc::after  { content: " ↑"; opacity: 1; }
+    th.desc::after { content: " ↓"; opacity: 1; }
+
+    td { padding: 8px 14px; border-top: 1px solid var(--border); vertical-align: middle; }
+    tr:hover td { background: rgba(88,166,255,.04); }
+
+    .url-cell { max-width: 420px; word-break: break-all; }
+    .url-cell a { color: var(--accent); text-decoration: none; }
+    .url-cell a:hover { text-decoration: underline; }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .status-ok       { background: rgba(63,185,80,.18); color: var(--green); }
+    .status-redirect { background: rgba(210,153,34,.18); color: var(--yellow); }
+    .status-error    { background: rgba(248,81,73,.18);  color: var(--red); }
+
+    .tool-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      background: rgba(88,166,255,.12);
+      color: var(--accent);
+    }
+
+    /* Health indicator */
+    .health { display: flex; gap: 8px; align-items: center; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot.green  { background: var(--green); }
+    .dot.yellow { background: var(--yellow); }
+    .dot.red    { background: var(--red); }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+      align-items: center;
+      margin-top: 14px;
+    }
+    .pagination button {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .pagination button.active { border-color: var(--accent); color: var(--accent); }
+    .pagination button:hover  { border-color: var(--accent); }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px;
+      color: var(--muted);
+    }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+    footer {
+      text-align: center;
+      padding: 24px;
+      color: var(--muted);
+      font-size: 12px;
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .charts-row { grid-template-columns: 1fr; }
+      .controls input[type=text] { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>&#x1F50D; directoryExplorer</h1>
+    <div class="meta">v{{VERSION}} &mdash; Authorized Penetration Testing Tool</div>
+  </div>
+  <div style="text-align:right;">
+    <div style="color:var(--text); font-weight:600;">{{TARGET_URL}}</div>
+    <div class="meta">{{SCAN_START}}</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="label">Endpoints Found</div>
+      <div class="value" id="stat-findings">{{FINDINGS_COUNT}}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Scan Duration</div>
+      <div class="value">{{DURATION}}s</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Tools Used</div>
+      <div class="value" style="font-size:14px; padding-top:6px;">{{TOOLS_USED}}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Technologies</div>
+      <div class="value" style="font-size:13px; padding-top:4px;">{{TECHNOLOGIES}}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Scan Start</div>
+      <div class="value" style="font-size:12px; padding-top:6px;">{{SCAN_START}}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Scan End</div>
+      <div class="value" style="font-size:12px; padding-top:6px;">{{SCAN_END}}</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <h3>Status Code Distribution</h3>
+      <canvas id="statusChart" height="220"></canvas>
+    </div>
+    <div class="chart-card" id="master-target-chart-card" style="display:none;">
+      <h3>Findings per Target</h3>
+      <canvas id="targetChart" height="220"></canvas>
+    </div>
+    <div class="chart-card" id="tool-chart-card">
+      <h3>Findings by Tool</h3>
+      <canvas id="toolChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- Master: target summary table -->
+  <div class="master-target-grid" id="master-target-table" style="display:none;">
+    <h3>Target Summary</h3>
+    <table id="targets-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Name</th>
+          <th>URL</th>
+          <th>Findings</th>
+          <th>Tools</th>
+          <th>Duration</th>
+          <th>Errors</th>
+        </tr>
+      </thead>
+      <tbody id="targets-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- Findings table -->
+  <div class="controls">
+    <input type="text" id="search-input" placeholder="&#x1F50D;  Search URL, tool, status…" oninput="filterTable()" />
+    <select id="status-filter" onchange="filterTable()">
+      <option value="">All status codes</option>
+      <option value="200">200 OK</option>
+      <option value="301">301 Moved</option>
+      <option value="302">302 Found</option>
+      <option value="307">307 Temporary</option>
+      <option value="308">308 Permanent</option>
+      <option value="403">403 Forbidden</option>
+      <option value="401">401 Unauthorized</option>
+    </select>
+    <select id="tool-filter" onchange="filterTable()">
+      <option value="">All tools</option>
+    </select>
+    <button class="btn secondary" onclick="exportCSV()">&#x2B07; Export CSV</button>
+    <button class="btn secondary" onclick="window.print()">&#x1F5A8; Print</button>
+    <span id="results-count" style="color:var(--muted); margin-left:auto; font-size:12px;"></span>
+  </div>
+
+  <div class="table-wrap">
+    <table id="findings-table">
+      <thead>
+        <tr>
+          <th onclick="sortTable(0)">Status</th>
+          <th onclick="sortTable(1)">URL</th>
+          <th onclick="sortTable(2)">Target</th>
+          <th onclick="sortTable(3)">Size</th>
+          <th onclick="sortTable(4)">Tool</th>
+          <th onclick="sortTable(5)">Content-Type</th>
+          <th onclick="sortTable(6)">Response Time</th>
+          <th onclick="sortTable(7)">Confidence</th>
+          <th onclick="sortTable(8)">Timestamp</th>
+        </tr>
+      </thead>
+      <tbody id="findings-tbody">
+        {{FINDINGS_ROWS}}
+      </tbody>
+    </table>
+    <div id="empty-state" class="empty-state" style="display:none;">
+      <div class="icon">&#x1F50D;</div>
+      <div>No findings match your filter.</div>
+    </div>
+  </div>
+
+  <div class="pagination" id="pagination"></div>
+
+</div>
+
+<footer>
+  Generated by <strong>directoryExplorer v{{VERSION}}</strong> &mdash;
+  For authorized penetration testing only.
+  &copy; 2024 &mdash; Use responsibly.
+</footer>
+
+<script>
+// ── Data ──────────────────────────────────────────────────────────────────────
+const STATUS_CHART_DATA = {{STATUS_CHART_DATA}};
+const IS_MASTER         = {{IS_MASTER}};
+const MASTER_TARGETS    = {{MASTER_TARGETS_DATA}};
+
+// ── Pagination state ──────────────────────────────────────────────────────────
+let PAGE      = 1;
+const PER_PAGE = 100;
+let filteredRows = [];
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+window.addEventListener("DOMContentLoaded", () => {
+  buildStatusChart();
+  buildToolChart();
+  if (IS_MASTER) {
+    buildMasterTargetTable();
+    buildTargetChart();
+    document.getElementById("master-target-table").style.display = "";
+    document.getElementById("master-target-chart-card").style.display = "";
+    document.getElementById("tool-chart-card").style.display = "none";
+  }
+  populateToolFilter();
+  filterTable();
+});
+
+// ── Status chart ──────────────────────────────────────────────────────────────
+function buildStatusChart() {
+  const labels = Object.keys(STATUS_CHART_DATA);
+  const values = Object.values(STATUS_CHART_DATA);
+  const palette = labels.map(l => {
+    const c = parseInt(l);
+    if (c === 200) return "rgba(63,185,80,.8)";
+    if (c >= 300 && c < 400) return "rgba(210,153,34,.8)";
+    if (c >= 400) return "rgba(248,81,73,.8)";
+    return "rgba(88,166,255,.8)";
+  });
+  new Chart(document.getElementById("statusChart"), {
+    type: "doughnut",
+    data: { labels, datasets: [{ data: values, backgroundColor: palette, borderWidth: 0 }] },
+    options: {
+      plugins: { legend: { labels: { color: "#8b949e", font: { size: 12 } } } },
+      cutout: "60%",
+    },
+  });
+}
+
+// ── Tool chart ────────────────────────────────────────────────────────────────
+function buildToolChart() {
+  const tbody = document.getElementById("findings-tbody");
+  const rows = Array.from(tbody.querySelectorAll("tr"));
+  const toolCounts = {};
+  rows.forEach(r => {
+    const tool = r.cells[4] ? r.cells[4].innerText.trim() : "";
+    tool.split(",").forEach(t => {
+      t = t.trim();
+      if (t) toolCounts[t] = (toolCounts[t] || 0) + 1;
+    });
+  });
+  new Chart(document.getElementById("toolChart"), {
+    type: "bar",
+    data: {
+      labels: Object.keys(toolCounts),
+      datasets: [{
+        data: Object.values(toolCounts),
+        backgroundColor: "rgba(88,166,255,.7)",
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#8b949e" }, grid: { color: "#21262d" } },
+        y: { ticks: { color: "#8b949e" }, grid: { color: "#21262d" } },
+      },
+    },
+  });
+}
+
+// ── Master target chart ───────────────────────────────────────────────────────
+function buildTargetChart() {
+  new Chart(document.getElementById("targetChart"), {
+    type: "bar",
+    data: {
+      labels: MASTER_TARGETS.map(t => t.name || t.url),
+      datasets: [{
+        data: MASTER_TARGETS.map(t => t.findings),
+        backgroundColor: "rgba(63,185,80,.7)",
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#8b949e" }, grid: { color: "#21262d" } },
+        y: { ticks: { color: "#8b949e" }, grid: { color: "#21262d" } },
+      },
+    },
+  });
+}
+
+// ── Master target table ───────────────────────────────────────────────────────
+function buildMasterTargetTable() {
+  const tbody = document.getElementById("targets-tbody");
+  MASTER_TARGETS.forEach(t => {
+    const ok = t.status === "OK";
+    tbody.innerHTML += `
+      <tr>
+        <td><span class="badge ${ok ? "status-ok" : "status-error"}">${t.status}</span></td>
+        <td>${esc(t.name)}</td>
+        <td><a href="${esc(t.url)}" target="_blank" style="color:var(--accent)">${esc(t.url)}</a></td>
+        <td>${t.findings}</td>
+        <td><span class="tool-tag">${esc(t.tools)}</span></td>
+        <td>${t.duration}s</td>
+        <td style="color:var(--red);font-size:11px;">${esc(t.errors)}</td>
+      </tr>`;
+  });
+}
+
+// ── Tool filter population ────────────────────────────────────────────────────
+function populateToolFilter() {
+  const tbody = document.getElementById("findings-tbody");
+  const tools = new Set();
+  Array.from(tbody.querySelectorAll("tr")).forEach(r => {
+    if (r.cells[4]) r.cells[4].innerText.split(",").forEach(t => tools.add(t.trim()));
+  });
+  const sel = document.getElementById("tool-filter");
+  tools.forEach(t => {
+    if (t) sel.innerHTML += `<option value="${esc(t)}">${esc(t)}</option>`;
+  });
+}
+
+// ── Filter & pagination ───────────────────────────────────────────────────────
+function filterTable() {
+  const search = document.getElementById("search-input").value.toLowerCase();
+  const status = document.getElementById("status-filter").value;
+  const tool   = document.getElementById("tool-filter").value.toLowerCase();
+
+  const tbody = document.getElementById("findings-tbody");
+  filteredRows = Array.from(tbody.querySelectorAll("tr")).filter(r => {
+    const text = r.innerText.toLowerCase();
+    const rowStatus = r.cells[0] ? r.cells[0].innerText.trim() : "";
+    const rowTool   = r.cells[4] ? r.cells[4].innerText.toLowerCase() : "";
+    return (
+      (!search || text.includes(search)) &&
+      (!status || rowStatus === status) &&
+      (!tool   || rowTool.includes(tool))
+    );
+  });
+
+  PAGE = 1;
+  renderPage();
+  document.getElementById("results-count").innerText =
+    `${filteredRows.length} results`;
+}
+
+function renderPage() {
+  const tbody = document.getElementById("findings-tbody");
+  const all   = Array.from(tbody.querySelectorAll("tr"));
+  all.forEach(r => r.style.display = "none");
+
+  const start = (PAGE - 1) * PER_PAGE;
+  filteredRows.slice(start, start + PER_PAGE).forEach(r => r.style.display = "");
+
+  const empty = document.getElementById("empty-state");
+  empty.style.display = filteredRows.length === 0 ? "" : "none";
+
+  buildPagination();
+}
+
+function buildPagination() {
+  const pages = Math.ceil(filteredRows.length / PER_PAGE);
+  const cont = document.getElementById("pagination");
+  cont.innerHTML = "";
+  if (pages <= 1) return;
+
+  const addBtn = (label, page, active) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (active) b.classList.add("active");
+    b.onclick = () => { PAGE = page; renderPage(); };
+    cont.appendChild(b);
+  };
+
+  addBtn("‹ Prev", Math.max(1, PAGE - 1), false);
+  for (let i = 1; i <= pages; i++) {
+    if (i === 1 || i === pages || Math.abs(i - PAGE) <= 2)
+      addBtn(i, i, i === PAGE);
+    else if (Math.abs(i - PAGE) === 3)
+      cont.insertAdjacentHTML("beforeend", '<span style="color:var(--muted);padding:0 4px">…</span>');
+  }
+  addBtn("Next ›", Math.min(pages, PAGE + 1), false);
+}
+
+// ── Sort ──────────────────────────────────────────────────────────────────────
+let sortState = { col: -1, asc: true };
+function sortTable(col) {
+  const ths = document.querySelectorAll("thead th");
+  ths.forEach((th, i) => th.classList.remove("asc","desc"));
+  if (sortState.col === col) sortState.asc = !sortState.asc;
+  else { sortState.col = col; sortState.asc = true; }
+  ths[col].classList.add(sortState.asc ? "asc" : "desc");
+
+  const tbody = document.getElementById("findings-tbody");
+  const rows = Array.from(tbody.querySelectorAll("tr"));
+  rows.sort((a, b) => {
+    const av = a.cells[col]?.innerText?.trim() || "";
+    const bv = b.cells[col]?.innerText?.trim() || "";
+    const n = (v) => parseFloat(v.replace(/[^0-9.]/g, ""));
+    const isNum = !isNaN(n(av)) && !isNaN(n(bv));
+    const cmp = isNum ? n(av) - n(bv) : av.localeCompare(bv);
+    return sortState.asc ? cmp : -cmp;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+  filterTable();
+}
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+function exportCSV() {
+  const headers = ["Status","URL","Target","Size","Tool","Content-Type","Response Time","Confidence","Timestamp"];
+  const lines = [headers.join(",")];
+  filteredRows.forEach(r => {
+    const cols = Array.from(r.cells).map(c => `"${c.innerText.trim().replace(/"/g,'""')}"`);
+    lines.push(cols.join(","));
+  });
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "directoryExplorer_findings.csv";
+  a.click();
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+</script>
+
+</body>
+</html>

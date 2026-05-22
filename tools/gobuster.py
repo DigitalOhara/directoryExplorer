@@ -1,0 +1,87 @@
+"""
+Gobuster tool wrapper.
+Output line format: /path (Status: 200) [Size: 1234]
+"""
+
+import re
+from typing import Dict, List, Optional
+
+from .base import BaseTool, Finding
+
+
+# Example: /admin                (Status: 200) [Size: 4096]
+# or:      /backup               (Status: 301) [Size: 220] [--> /backup/]
+_LINE_RE = re.compile(
+    r"^(?P<path>/\S*)\s+\(Status:\s*(?P<status>\d+)\)"
+    r"(?:\s+\[Size:\s*(?P<size>\d+)\])?",
+    re.IGNORECASE,
+)
+
+
+class GobusterTool(BaseTool):
+    name = "gobuster"
+
+    def build_command(self) -> List[str]:
+        cmd = [
+            "gobuster", "dir",
+            "-u", self.target,
+            "-w", self.wordlist,
+            "-t", str(self.threads),
+            "--timeout", f"{self.timeout}s",
+            "-o", self._raw_log_path,
+            "-q",               # quiet — machine-readable output
+            "--no-progress",
+        ]
+
+        if self.extensions:
+            cmd += ["-x", ",".join(e.lstrip(".") for e in self.extensions)]
+
+        for key, val in self.headers.items():
+            cmd += ["-H", f"{key}: {val}"]
+
+        if self.cookies:
+            cmd += ["-c", self.cookies]
+
+        if self.user_agent:
+            cmd += ["-a", self.user_agent]
+
+        if self.proxy:
+            cmd += ["--proxy", self.proxy]
+
+        if self.follow_redirects:
+            cmd += ["-r"]
+
+        # Status code filter
+        cmd += [
+            "--status-codes",
+            ",".join(str(s) for s in self.status_filter),
+        ]
+
+        # Delay (gobuster uses milliseconds)
+        if self.delay > 0:
+            ms = int(self.delay * 1000)
+            cmd += ["--delay", f"{ms}ms"]
+
+        return cmd
+
+    def parse_output(self, raw: str, log_path: str) -> List[Finding]:
+        findings: List[Finding] = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith("["):
+                continue
+            m = _LINE_RE.match(line)
+            if m:
+                path = m.group("path")
+                status = int(m.group("status"))
+                size = int(m.group("size") or 0)
+                url = self.target.rstrip("/") + path
+                findings.append(
+                    self._make_finding(
+                        url=url,
+                        status=status,
+                        length=size,
+                        source_log=log_path,
+                    )
+                )
+        return findings

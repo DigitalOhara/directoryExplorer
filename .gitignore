@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# Tool output / scan artifacts
+output/
+*.db
+*.sqlite
+
+# Temp wordlists generated at runtime
+de_wordlist_*.txt
+/tmp/de_wordlist_*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (keep log dir, not log files)
+*.log
