@@ -4,6 +4,7 @@ Abstract base class shared by all tool wrappers.
 
 import asyncio
 import os
+import shlex
 import shutil
 import subprocess
 import time
@@ -125,8 +126,9 @@ class BaseTool(ABC):
             return result
 
         cmd = self.build_command()
-        if self.verbose:
-            log.debug("[%s] Command: %s", self.name, " ".join(cmd))
+        cmd_str = " ".join(shlex.quote(c) for c in cmd)
+        print(f"\n  \033[36m[{self.name}]\033[0m $ {cmd_str}\n")
+        log.debug("[%s] Command: %s", self.name, cmd_str)
 
         start = time.monotonic()
         try:

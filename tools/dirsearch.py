@@ -24,6 +24,35 @@ _TEXT_RE = re.compile(
 )
 
 
+def _build_status_arg(status_filter: List[int]) -> str:
+    """
+    Convert a list of status codes to dirsearch's compact range notation.
+
+    The default filter [200,301,302,307,308] maps to "200,300-399" — a broader
+    range that catches all redirects and was found to work well against WAFs.
+    Any custom filter is collapsed into the shortest equivalent range string
+    (e.g. [200,403,404] → "200,403-404").
+    """
+    default_codes = {200, 301, 302, 307, 308}
+    if set(status_filter) == default_codes:
+        return "200,300-399"
+
+    sorted_codes = sorted(set(status_filter))
+    if not sorted_codes:
+        return "200"
+
+    ranges: List[str] = []
+    start = end = sorted_codes[0]
+    for code in sorted_codes[1:]:
+        if code == end + 1:
+            end = code
+        else:
+            ranges.append(str(start) if start == end else f"{start}-{end}")
+            start = end = code
+    ranges.append(str(start) if start == end else f"{start}-{end}")
+    return ",".join(ranges)
+
+
 def _parse_size(raw: str) -> int:
     """Convert dirsearch human-readable size (e.g. '4KB', '234B') to bytes."""
     raw = raw.strip().upper().replace(" ", "")
@@ -49,17 +78,29 @@ class DirsearchTool(BaseTool):
             os.path.dirname(self._raw_log_path), "dirsearch_results.json"
         )
 
+    # Dirsearch-specific rate-limiting defaults that help bypass WAFs/Cloudflare.
+    # These cap requests regardless of the global --threads / --delay values.
+    _DEFAULT_THREADS  = 5
+    _DEFAULT_DELAY    = 0.5
+    _MAX_RATE         = 10   # requests per second
+
     def build_command(self) -> List[str]:
+        # Use conservative per-tool defaults; honour whatever the user explicitly
+        # lowered further via -T / -d (but never exceed the WAF-safe ceiling).
+        threads = min(self.threads, self._DEFAULT_THREADS)
+        delay   = max(self.delay,   self._DEFAULT_DELAY)
+
         cmd = [
             "dirsearch",
             "-u", self.target,
             "-w", self.wordlist,
-            "-t", str(self.threads),
+            "--threads", str(threads),
+            "--delay",   str(delay),
+            "--max-rate", str(self._MAX_RATE),
             "--timeout", str(self.timeout),
+            "--no-color",
             "-o", self._json_out,
             "--format", "json",
-            "--no-color",
-            "--quiet",
         ]
 
         if self.extensions:
@@ -67,13 +108,20 @@ class DirsearchTool(BaseTool):
             cmd += ["--force-extensions"]
 
         for key, val in self.headers.items():
-            cmd += ["-H", f"{key}: {val}"]
+            if key.lower() != "user-agent":   # handled separately below
+                cmd += ["-H", f"{key}: {val}"]
 
         if self.cookies:
             cmd += ["--cookie", self.cookies]
 
-        if self.user_agent:
-            cmd += ["-H", f"User-Agent: {self.user_agent}"]
+        # Always set User-Agent explicitly; default is the Chrome UA that
+        # was observed to bypass Cloudflare in testing.
+        ua = self.user_agent or (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/91.0.4472.114 Safari/537.36"
+        )
+        cmd += ["--user-agent", ua]
 
         if self.proxy:
             cmd += ["--proxy", self.proxy]
@@ -84,12 +132,8 @@ class DirsearchTool(BaseTool):
         if self.recursion_depth > 0:
             cmd += ["-r", "--max-recursion-depth", str(self.recursion_depth)]
 
-        cmd += [
-            "-i", ",".join(str(s) for s in self.status_filter),
-        ]
-
-        if self.delay > 0:
-            cmd += ["--delay", str(self.delay)]
+        # Build compact range-notation status filter (e.g. "200,300-399").
+        cmd += ["-i", _build_status_arg(self.status_filter)]
 
         return cmd
 
