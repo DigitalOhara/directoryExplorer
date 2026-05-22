@@ -184,101 +184,54 @@ class WordlistResult:
 
 def build_combined_wordlist(
     custom_path: Optional[str] = None,
-    extensions: Optional[List[str]] = None,
 ) -> WordlistResult:
     """
     Resolve the wordlist all tools will use.
 
-    Fast path (no temp file created):
-      • No -w given AND no extension expansion needed
-        → dicc.txt used directly (real path, is_temp=False)
+    Fast path — no temp file created:
+      • No -w given → return dicc.txt path directly (is_temp=False)
 
-    Merge path (temp file created, is_temp=True):
-      • Custom -w supplied  → custom file + missing sensitive entries + extensions
-      • No -w but extension expansion requested
-        → dicc.txt content + missing sensitive entries + expanded entries
+    Merge path — temp file created (is_temp=True):
+      • Custom -w supplied → custom entries + any SENSITIVE_FILES not already present
 
-    "Missing sensitive entries" = SENSITIVE_FILES entries not already present
-    in whatever base wordlist was chosen, so they are always covered.
+    Extension expansion is intentionally NOT done here; every tool wrapper
+    applies extensions natively via its own -x / -e / --extensions flag.
     """
     import sys
 
     dicc = find_dicc_txt()
 
-    # ── Fast path: no custom wordlist, no extension expansion ──────────────────
-    if not custom_path and not extensions:
+    # ── Fast path: no custom wordlist → use dicc.txt directly ─────────────────
+    if not custom_path:
         if dicc:
-            print(
-                f"[*] Wordlist: {dicc}  ({_count_lines(dicc)} entries)",
-                file=sys.stderr,
-            )
+            print(f"[*] Wordlist: {dicc}  ({_count_lines(dicc)} entries)", file=sys.stderr)
             return WordlistResult(path=dicc, is_temp=False)
-        # No dicc.txt → write built-in list as temp file
+        # No dicc.txt anywhere → fall back to built-in list written once as temp
         print(
             f"[*] dicc.txt not found — using built-in wordlist ({len(DEFAULT_WORDLIST)} entries)",
             file=sys.stderr,
         )
         return WordlistResult(path=_write_temp(DEFAULT_WORDLIST + SENSITIVE_FILES), is_temp=True)
 
-    # ── Merge path ─────────────────────────────────────────────────────────────
-    entries: List[str] = []
+    # ── Merge path: custom wordlist provided ───────────────────────────────────
+    custom_file = Path(custom_path)
+    if not custom_file.is_file():
+        print(
+            f"[!] Custom wordlist not found: {custom_path} — falling back to dicc.txt / built-in",
+            file=sys.stderr,
+        )
+        return build_combined_wordlist()   # recurse without custom_path
 
-    if custom_path:
-        custom_file = Path(custom_path)
-        if custom_file.is_file():
-            entries = _read_wordlist(custom_file)
-            print(
-                f"[*] Wordlist: {custom_path}  ({len(entries)} entries, custom)",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                f"[!] Custom wordlist not found: {custom_path} — falling back to dicc.txt / built-in",
-                file=sys.stderr,
-            )
+    entries = _read_wordlist(custom_file)
+    print(f"[*] Wordlist: {custom_path}  ({len(entries)} entries, custom)", file=sys.stderr)
 
-    if not entries:
-        if dicc:
-            entries = _read_wordlist(dicc)
-            print(
-                f"[*] Wordlist: {dicc}  ({len(entries)} entries, merging with extras)",
-                file=sys.stderr,
-            )
-        else:
-            entries = list(DEFAULT_WORDLIST)
-            print(
-                f"[*] dicc.txt not found — using built-in wordlist ({len(entries)} entries)",
-                file=sys.stderr,
-            )
-
-    # Append any sensitive files not already present
+    # Append sensitive files not already present in the custom list
     entries_set = set(entries)
     for sf in SENSITIVE_FILES:
         if sf not in entries_set:
             entries.append(sf)
-            entries_set.add(sf)
 
-    # Deduplicate while preserving order
-    seen: set = set()
-    unique: List[str] = []
-    for entry in entries:
-        if entry not in seen:
-            seen.add(entry)
-            unique.append(entry)
-
-    # Extension expansion
-    if extensions:
-        base_entries = list(unique)
-        for word in base_entries:
-            if "." not in word.split("/")[-1]:
-                for ext in extensions:
-                    ext = ext.lstrip(".")
-                    candidate = f"{word}.{ext}"
-                    if candidate not in seen:
-                        seen.add(candidate)
-                        unique.append(candidate)
-
-    return WordlistResult(path=_write_temp(unique), is_temp=True)
+    return WordlistResult(path=_write_temp(entries), is_temp=True)
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────

@@ -329,13 +329,11 @@ def _build_headers(args: Any) -> Dict[str, str]:
     for h in (args.header or []):
         if ":" in h:
             k, v = h.split(":", 1)
-            headers[k.strip()] = v.strip()
+            # Skip User-Agent here — every tool sets it via its native UA flag
+            if k.strip().lower() != "user-agent":
+                headers[k.strip()] = v.strip()
     if args.auth:
         headers["Authorization"] = args.auth
-    if not args.random_agent:
-        ua = getattr(args, "user_agent", None)
-        if ua:
-            headers["User-Agent"] = ua
     return headers
 
 

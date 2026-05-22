@@ -343,10 +343,7 @@ def main() -> None:
 
     # Resolve wordlist (uses dicc.txt directly when possible — no temp copy)
     log.info("Resolving wordlist…")
-    wl_result = build_combined_wordlist(
-        custom_path=args.wordlist,
-        extensions=args.extensions,
-    )
+    wl_result = build_combined_wordlist(custom_path=args.wordlist)
     if wl_result.is_temp:
         log.info("Merged wordlist: %s", wl_result.path)
     else:
