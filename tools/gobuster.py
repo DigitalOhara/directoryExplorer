@@ -51,10 +51,11 @@ class GobusterTool(BaseTool):
         if self.follow_redirects:
             cmd += ["-r"]
 
-        # Status code filter
+        # status-codes and status-codes-blacklist are mutually exclusive in gobuster;
+        # clear the blacklist (default: "404") so --status-codes takes effect.
         cmd += [
-            "--status-codes",
-            ",".join(str(s) for s in self.status_filter),
+            "--status-codes", ",".join(str(s) for s in self.status_filter),
+            "--status-codes-blacklist", "",
         ]
 
         # Delay (gobuster uses milliseconds)

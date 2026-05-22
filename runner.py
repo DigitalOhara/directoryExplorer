@@ -118,7 +118,7 @@ def scan_target(
     args: Any,
     output_root: str,
     db_conn: sqlite3.Connection,
-    wordlist_path: str,
+    wl,   # WordlistResult
 ) -> Dict:
     """
     Run all selected tools against one target, normalize results, persist, and
@@ -156,14 +156,18 @@ def scan_target(
 
     # Tool execution
     selected_tools = _resolve_tools(args)
-    common_kwargs = _build_tool_kwargs(args, target.url, tdir, wordlist_path)
 
     for tool_name in selected_tools:
         ToolClass = TOOL_REGISTRY.get(tool_name)
         if not ToolClass:
             continue
 
-        tool = ToolClass(**common_kwargs)
+        # dirsearch uses the original dicc.txt (handles %EXT% natively);
+        # every other tool uses the cleaned wordlist (%EXT% entries stripped).
+        wordlist_for_tool = wl.dirsearch_path if tool_name == "dirsearch" else wl.clean_path
+        tool_kwargs = _build_tool_kwargs(args, target.url, tdir, wordlist_for_tool)
+
+        tool = ToolClass(**tool_kwargs)
         if not tool.is_available():
             log.warning("[%s] %s not installed — skipping", target.name, tool_name)
             continue
@@ -224,7 +228,7 @@ def scan_target(
 
 # ── Multi-target orchestration ─────────────────────────────────────────────────
 
-def run_scan(targets: List[Target], args: Any, wordlist_path: str) -> Dict:
+def run_scan(targets: List[Target], args: Any, wl) -> Dict:
     """
     Entry point for all scanning.  Handles sequential and parallel execution.
     Returns master summary dict.
@@ -258,13 +262,13 @@ def run_scan(targets: List[Target], args: Any, wordlist_path: str) -> Dict:
 
     if parallel > 1 and len(pending) > 1:
         summaries = asyncio.run(
-            _run_parallel(pending, args, output_root, db_conn, wordlist_path, parallel)
+            _run_parallel(pending, args, output_root, db_conn, wl, parallel)
         )
     else:
         summaries = []
         for t in pending:
             try:
-                s = scan_target(t, args, output_root, db_conn, wordlist_path)
+                s = scan_target(t, args, output_root, db_conn, wl)
                 summaries.append(s)
                 _save_target_summary(output_root, t, s)
             except Exception as exc:
@@ -298,7 +302,7 @@ async def _run_parallel(
     args: Any,
     output_root: str,
     db_conn: sqlite3.Connection,
-    wordlist_path: str,
+    wl,
     parallel: int,
 ) -> List[Dict]:
     semaphore = asyncio.Semaphore(parallel)
@@ -308,7 +312,7 @@ async def _run_parallel(
         async with semaphore:
             try:
                 summary = await loop.run_in_executor(
-                    None, scan_target, t, args, output_root, db_conn, wordlist_path
+                    None, scan_target, t, args, output_root, db_conn, wl
                 )
                 _save_target_summary(output_root, t, summary)
                 return summary

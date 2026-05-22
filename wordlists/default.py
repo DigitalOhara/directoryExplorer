@@ -178,60 +178,83 @@ def find_dicc_txt() -> Optional[str]:
 
 @dataclass
 class WordlistResult:
-    path: str
-    is_temp: bool   # True → caller must delete after use; False → real file, do not delete
+    # Path for dirsearch — original file, %EXT% placeholders intact.
+    dirsearch_path: str
+    # Path for all other tools — %EXT% lines stripped, safe for URL construction.
+    clean_path: str
+    # True if clean_path is a temp file we created (caller must delete it).
+    clean_is_temp: bool
 
 
 def build_combined_wordlist(
     custom_path: Optional[str] = None,
+    output_dir: Optional[str] = None,
 ) -> WordlistResult:
     """
-    Resolve the wordlist all tools will use.
+    Resolve wordlists for all tools.
 
-    Fast path — no temp file created:
-      • No -w given → return dicc.txt path directly (is_temp=False)
+    dirsearch_path  — original source (dicc.txt or custom), handed to dirsearch
+                      which understands %EXT% placeholder syntax natively.
+    clean_path      — same source with %EXT% lines stripped, handed to every
+                      other tool (gobuster, ffuf, feroxbuster, wfuzz, dirb).
+                      Written to <output_dir>/wordlist_clean.txt when output_dir
+                      is given, otherwise to a temp file.
 
-    Merge path — temp file created (is_temp=True):
-      • Custom -w supplied → custom entries + any SENSITIVE_FILES not already present
-
-    Extension expansion is intentionally NOT done here; every tool wrapper
-    applies extensions natively via its own -x / -e / --extensions flag.
+    Extension expansion is NOT done here — every tool applies -x/-e/--extensions
+    via its own native flag.
     """
     import sys
 
     dicc = find_dicc_txt()
 
-    # ── Fast path: no custom wordlist → use dicc.txt directly ─────────────────
-    if not custom_path:
-        if dicc:
-            print(f"[*] Wordlist: {dicc}  ({_count_lines(dicc)} entries)", file=sys.stderr)
-            return WordlistResult(path=dicc, is_temp=False)
-        # No dicc.txt anywhere → fall back to built-in list written once as temp
+    # ── Resolve source wordlist ────────────────────────────────────────────────
+    if custom_path:
+        custom_file = Path(custom_path)
+        if not custom_file.is_file():
+            print(
+                f"[!] Custom wordlist not found: {custom_path} — falling back to dicc.txt / built-in",
+                file=sys.stderr,
+            )
+            return build_combined_wordlist(output_dir=output_dir)
+
+        source_path = str(custom_file)
+        entries = _read_wordlist(custom_file)
+        # Append sensitive files not already present
+        entries_set = set(entries)
+        for sf in SENSITIVE_FILES:
+            if sf not in entries_set:
+                entries.append(sf)
+        print(f"[*] Wordlist: {source_path}  ({len(entries)} entries, custom)", file=sys.stderr)
+        dirsearch_path = _write_temp(entries)
+        clean_path = _write_clean(entries, output_dir)
+        return WordlistResult(dirsearch_path=dirsearch_path, clean_path=clean_path, clean_is_temp=True)
+
+    if dicc:
+        source_entries = _read_wordlist(dicc)
+        total = len(source_entries)
+        clean_entries = [e for e in source_entries if "%EXT%" not in e]
+        removed = total - len(clean_entries)
+        # Append missing sensitive files to the clean list
+        clean_set = set(clean_entries)
+        for sf in SENSITIVE_FILES:
+            if sf not in clean_set:
+                clean_entries.append(sf)
+        clean_path = _write_clean(clean_entries, output_dir)
         print(
-            f"[*] dicc.txt not found — using built-in wordlist ({len(DEFAULT_WORDLIST)} entries)",
+            f"[*] Wordlist: {dicc}  ({total} entries, {removed} %EXT% placeholders stripped "
+            f"→ {len(clean_entries)} entries for non-dirsearch tools)",
             file=sys.stderr,
         )
-        return WordlistResult(path=_write_temp(DEFAULT_WORDLIST + SENSITIVE_FILES), is_temp=True)
+        return WordlistResult(dirsearch_path=dicc, clean_path=clean_path, clean_is_temp=True)
 
-    # ── Merge path: custom wordlist provided ───────────────────────────────────
-    custom_file = Path(custom_path)
-    if not custom_file.is_file():
-        print(
-            f"[!] Custom wordlist not found: {custom_path} — falling back to dicc.txt / built-in",
-            file=sys.stderr,
-        )
-        return build_combined_wordlist()   # recurse without custom_path
-
-    entries = _read_wordlist(custom_file)
-    print(f"[*] Wordlist: {custom_path}  ({len(entries)} entries, custom)", file=sys.stderr)
-
-    # Append sensitive files not already present in the custom list
-    entries_set = set(entries)
-    for sf in SENSITIVE_FILES:
-        if sf not in entries_set:
-            entries.append(sf)
-
-    return WordlistResult(path=_write_temp(entries), is_temp=True)
+    # No dicc.txt found → built-in fallback for all tools
+    entries = list(DEFAULT_WORDLIST) + SENSITIVE_FILES
+    print(
+        f"[*] dicc.txt not found — using built-in wordlist ({len(entries)} entries)",
+        file=sys.stderr,
+    )
+    path = _write_temp(entries)
+    return WordlistResult(dirsearch_path=path, clean_path=path, clean_is_temp=True)
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
@@ -253,6 +276,17 @@ def _write_temp(entries: List[str]) -> str:
     tmp.write("\n".join(entries) + "\n")
     tmp.close()
     return tmp.name
+
+
+def _write_clean(entries: List[str], output_dir: Optional[str]) -> str:
+    """Write entries to <output_dir>/wordlist_clean.txt or a temp file."""
+    if output_dir:
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        dest = os.path.join(output_dir, "wordlist_clean.txt")
+        with open(dest, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(entries) + "\n")
+        return dest
+    return _write_temp(entries)
 
 
 def _count_lines(path: str) -> int:

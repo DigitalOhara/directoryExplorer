@@ -311,6 +311,20 @@ def check_dependencies(log) -> None:
         sys.exit(1)
 
 
+# ── Wordlist cleanup ──────────────────────────────────────────────────────────
+
+def _cleanup_wordlist(wl) -> None:
+    """Delete only files we created in /tmp; never touch dicc.txt or output-dir files."""
+    seen: set = set()
+    for path in (wl.clean_path, wl.dirsearch_path):
+        if path and path not in seen and path.startswith("/tmp"):
+            seen.add(path)
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -341,19 +355,17 @@ def main() -> None:
     # Check tool availability
     check_dependencies(log)
 
-    # Resolve wordlist (uses dicc.txt directly when possible — no temp copy)
+    # Resolve wordlists — dicc.txt for dirsearch, cleaned copy for other tools
     log.info("Resolving wordlist…")
-    wl_result = build_combined_wordlist(custom_path=args.wordlist)
-    if wl_result.is_temp:
-        log.info("Merged wordlist: %s", wl_result.path)
-    else:
-        log.info("Wordlist: %s", wl_result.path)
+    wl = build_combined_wordlist(
+        custom_path=args.wordlist,
+        output_dir=args.output,
+    )
 
     start_time = time.monotonic()
 
     try:
-        # Run scan
-        master = run_scan(targets, args, wl_result.path)
+        master = run_scan(targets, args, wl)
 
         elapsed = time.monotonic() - start_time
         log.info(
@@ -363,19 +375,14 @@ def main() -> None:
             master.get("total_targets", 0),
         )
 
-        # Generate reports
         _generate_reports(master, args, log)
 
     except KeyboardInterrupt:
         print("\n[!] Interrupted by user. Partial results may have been saved.")
         sys.exit(130)
     finally:
-        # Only delete the wordlist file if we created a temp copy
-        if wl_result.is_temp:
-            try:
-                os.unlink(wl_result.path)
-            except OSError:
-                pass
+        # Delete any temp files we created (never touch dicc.txt or output_dir files)
+        _cleanup_wordlist(wl)
 
 
 def _generate_reports(master: dict, args: argparse.Namespace, log) -> None:
