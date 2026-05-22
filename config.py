@@ -31,7 +31,7 @@ DEFAULT_EXTENSIONS = [
 ]
 
 # Tools supported
-SUPPORTED_TOOLS = ["gobuster", "ffuf", "feroxbuster", "wfuzz", "dirb"]
+SUPPORTED_TOOLS = ["gobuster", "ffuf", "feroxbuster", "wfuzz", "dirb", "dirsearch"]
 
 # ── User-Agent pool (--random-agent) ──────────────────────────────────────────
 USER_AGENTS = [
@@ -116,6 +116,11 @@ TOOL_INSTALL_RECIPES = {
     ],
     "dirb": [
         "apt-get install -y dirb",
+    ],
+    "dirsearch": [
+        "apt-get install -y dirsearch",
+        "pip3 install dirsearch",
+        "pip install dirsearch",
     ],
 }
 
