@@ -140,7 +140,7 @@ class BaseTool(ABC):
                 encoding="utf-8",
                 errors="replace",
             )
-            stdout, stderr = proc.communicate(timeout=self.timeout * 10)
+            stdout, stderr = proc.communicate(timeout=None)
             result.returncode = proc.returncode
             result.raw_output = stdout
             result.stderr_output = stderr
