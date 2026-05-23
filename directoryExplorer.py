@@ -337,8 +337,9 @@ def main() -> None:
     parser = build_parser()
     args   = parser.parse_args()
 
-    # Print ethics banner
-    print(ETHICS_BANNER)
+    # Print ethics banner — flush=True forces immediate stdout flush before
+    # logging (which goes to stderr) can interleave with it.
+    print(ETHICS_BANNER, flush=True)
 
     # Require at least one target
     if not args.target and not args.targets_file:

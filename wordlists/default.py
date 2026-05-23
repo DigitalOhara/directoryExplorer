@@ -219,11 +219,13 @@ def build_combined_wordlist(
 
         source_path = str(custom_file)
         entries = _read_wordlist(custom_file)
-        # Append sensitive files not already present
-        entries_set = set(entries)
+        # Append sensitive files not already present then deduplicate.
+        entries_set: set = set(entries)
         for sf in SENSITIVE_FILES:
             if sf not in entries_set:
                 entries.append(sf)
+                entries_set.add(sf)
+        entries = _dedup(entries)
         print(f"[*] Wordlist: {source_path}  ({len(entries)} entries, custom)", file=sys.stderr)
         dirsearch_path = _write_temp(entries)
         clean_path = _write_clean(entries, output_dir)
@@ -234,11 +236,13 @@ def build_combined_wordlist(
         total = len(source_entries)
         clean_entries = [e for e in source_entries if "%EXT%" not in e]
         removed = total - len(clean_entries)
-        # Append missing sensitive files to the clean list
-        clean_set = set(clean_entries)
+        # Append missing sensitive files then deduplicate, preserving order.
+        clean_set: set = set(clean_entries)
         for sf in SENSITIVE_FILES:
             if sf not in clean_set:
                 clean_entries.append(sf)
+                clean_set.add(sf)
+        clean_entries = _dedup(clean_entries)
         clean_path = _write_clean(clean_entries, output_dir)
         print(
             f"[*] Wordlist: {dicc}  ({total} entries, {removed} %EXT% placeholders stripped "
@@ -287,6 +291,17 @@ def _write_clean(entries: List[str], output_dir: Optional[str]) -> str:
             fh.write("\n".join(entries) + "\n")
         return dest
     return _write_temp(entries)
+
+
+def _dedup(entries: List[str]) -> List[str]:
+    """Remove duplicates from a list while preserving insertion order."""
+    seen: set = set()
+    out: List[str] = []
+    for e in entries:
+        if e not in seen:
+            seen.add(e)
+            out.append(e)
+    return out
 
 
 def _count_lines(path: str) -> int:

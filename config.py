@@ -31,7 +31,7 @@ DEFAULT_EXTENSIONS = [
 ]
 
 # Tools supported
-SUPPORTED_TOOLS = ["gobuster", "ffuf", "feroxbuster", "wfuzz", "dirb", "dirsearch"]
+SUPPORTED_TOOLS = ["gobuster", "dirsearch"]
 
 # ── User-Agent pool (--random-agent) ──────────────────────────────────────────
 USER_AGENTS = [
@@ -99,23 +99,6 @@ TOOL_INSTALL_RECIPES = {
     "gobuster": [
         "apt-get install -y gobuster",
         "go install github.com/OJ/gobuster/v3@latest && cp ~/go/bin/gobuster /usr/local/bin/gobuster",
-    ],
-    "ffuf": [
-        "apt-get install -y ffuf",
-        "go install github.com/ffuf/ffuf/v2@latest && cp ~/go/bin/ffuf /usr/local/bin/ffuf",
-    ],
-    "feroxbuster": [
-        "apt-get install -y feroxbuster",
-        "curl -sL https://raw.githubusercontent.com/epi052/feroxbuster/main/install-nix.sh | bash -s /usr/local/bin",
-        "cargo install feroxbuster && cp ~/.cargo/bin/feroxbuster /usr/local/bin/feroxbuster",
-    ],
-    "wfuzz": [
-        "apt-get install -y wfuzz",
-        "pip3 install wfuzz",
-        "pip install wfuzz",
-    ],
-    "dirb": [
-        "apt-get install -y dirb",
     ],
     "dirsearch": [
         "apt-get install -y dirsearch",
