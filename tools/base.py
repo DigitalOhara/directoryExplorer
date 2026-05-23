@@ -131,6 +131,11 @@ class BaseTool(ABC):
         print(f"\n  \033[36m[{self.name}]\033[0m $ {cmd_str}\n")
         log.debug("[%s] Command: %s", self.name, cmd_str)
 
+        # Force line-buffered stdout on the child process so findings appear
+        # immediately rather than being held in an 8 KB pipe buffer.
+        if shutil.which("stdbuf"):
+            cmd = ["stdbuf", "-oL"] + cmd
+
         start = time.monotonic()
         try:
             proc = subprocess.Popen(
@@ -140,6 +145,7 @@ class BaseTool(ABC):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                bufsize=1,          # line-buffered on the Python side too
             )
 
             # Drain stderr in a background thread so it never blocks stdout.
@@ -150,16 +156,24 @@ class BaseTool(ABC):
             stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
             stderr_thread.start()
 
-            # Stream stdout line-by-line so the user sees live progress.
+            # Stream stdout one line at a time (readline avoids Python's
+            # internal read-ahead that would buffer across line boundaries).
             stdout_lines: List[str] = []
-            for line in proc.stdout:
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
                 stdout_lines.append(line)
                 cleaned = line.rstrip()
                 if cleaned:
-                    # Strip common ANSI cursor-clear prefixes (\x1b[2K, \r)
-                    display = cleaned.lstrip("\r").lstrip("\x1b[2K").lstrip()
+                    # Strip ANSI cursor-clear codes gobuster emits (\x1b[2K, \r)
+                    display = cleaned.lstrip("\r")
+                    while display.startswith("\x1b["):
+                        end = display.find("m")
+                        display = display[end + 1:] if end != -1 else display[2:]
+                    display = display.lstrip()
                     if display:
-                        print(f"  \033[90m{display}\033[0m")
+                        print(f"  \033[90m{display}\033[0m", flush=True)
 
             proc.wait()
             stderr_thread.join()
