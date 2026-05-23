@@ -4,6 +4,7 @@ Abstract base class shared by all tool wrappers.
 
 import asyncio
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -14,6 +15,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Matches any ANSI escape sequence (color codes, cursor moves, erase-line, etc.)
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
 
 from utils.logging_utils import get_logger
 
@@ -85,6 +89,7 @@ class BaseTool(ABC):
         recursion_depth: int = 0,
         status_filter: Optional[List[int]] = None,
         verbose: bool = False,
+        wildcard_size: Optional[int] = None,
     ):
         self.target = target.rstrip("/")
         self.wordlist = wordlist
@@ -102,6 +107,7 @@ class BaseTool(ABC):
         self.recursion_depth = recursion_depth
         self.status_filter = status_filter or [200, 301, 302, 307, 308]
         self.verbose = verbose
+        self.wildcard_size = wildcard_size
         self._raw_log_path = os.path.join(output_dir, "raw", f"{self.name}_output.txt")
         Path(self._raw_log_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -148,32 +154,28 @@ class BaseTool(ABC):
                 bufsize=1,          # line-buffered on the Python side too
             )
 
-            # Drain stderr in a background thread so it never blocks stdout.
+            # Drain stderr in a background thread and print errors immediately.
             stderr_lines: List[str] = []
             def _drain_stderr():
                 for ln in proc.stderr:
                     stderr_lines.append(ln)
+                    text = _ANSI_RE.sub("", ln).strip()
+                    if text:
+                        print(f"  \033[33m[{self.name}]\033[0m {text}", flush=True)
             stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
             stderr_thread.start()
 
-            # Stream stdout one line at a time (readline avoids Python's
-            # internal read-ahead that would buffer across line boundaries).
+            # Stream stdout one line at a time. readline() avoids Python's
+            # internal read-ahead buffer; stdbuf -oL makes the child flush per line.
             stdout_lines: List[str] = []
             while True:
                 line = proc.stdout.readline()
                 if not line:
                     break
                 stdout_lines.append(line)
-                cleaned = line.rstrip()
-                if cleaned:
-                    # Strip ANSI cursor-clear codes gobuster emits (\x1b[2K, \r)
-                    display = cleaned.lstrip("\r")
-                    while display.startswith("\x1b["):
-                        end = display.find("m")
-                        display = display[end + 1:] if end != -1 else display[2:]
-                    display = display.lstrip()
-                    if display:
-                        print(f"  \033[90m{display}\033[0m", flush=True)
+                display = _ANSI_RE.sub("", line).strip()
+                if display:
+                    print(f"  \033[90m{display}\033[0m", flush=True)
 
             proc.wait()
             stderr_thread.join()

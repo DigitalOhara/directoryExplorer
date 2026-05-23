@@ -135,6 +135,9 @@ class DirsearchTool(BaseTool):
         # Build compact range-notation status filter (e.g. "200,300-399").
         cmd += ["-i", _build_status_arg(self.status_filter)]
 
+        if self.wildcard_size is not None:
+            cmd += ["--exclude-sizes", str(self.wildcard_size)]
+
         return cmd
 
     def parse_output(self, raw: str, log_path: str) -> List[Finding]:

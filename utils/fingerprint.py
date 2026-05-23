@@ -5,6 +5,7 @@ Lightweight technology fingerprinting and passive recon helpers.
 import hashlib
 import re
 import time
+import uuid
 from typing import Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -147,6 +148,43 @@ def fingerprint_target(
         result["error"] = str(exc)
 
     return result
+
+
+def detect_wildcard(
+    url: str,
+    status_filter: Optional[List[int]] = None,
+    timeout: int = 10,
+    proxy: Optional[str] = None,
+) -> Optional[int]:
+    """
+    Detect wildcard responses by requesting a guaranteed-nonexistent path.
+
+    Returns the response body length if the server returns a status code that
+    matches the scan filter (i.e. it would produce false positives), or None
+    if the server correctly 404s the random path.
+    """
+    if not REQUESTS_AVAILABLE:
+        return None
+
+    filter_codes = set(status_filter or [200, 301, 302, 307, 308])
+    random_path = f"/{uuid.uuid4().hex}"
+    probe_url = url.rstrip("/") + random_path
+
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+    try:
+        resp = requests.get(
+            probe_url,
+            timeout=timeout,
+            proxies=proxies,
+            allow_redirects=False,
+            verify=False,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; directoryExplorer/1.0)"},
+        )
+        if resp.status_code in filter_codes:
+            return len(resp.content)
+    except Exception:
+        pass
+    return None
 
 
 def parse_robots_txt(url: str, timeout: int = 10, proxy: Optional[str] = None) -> List[str]:

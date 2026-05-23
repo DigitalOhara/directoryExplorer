@@ -42,6 +42,9 @@ class WfuzzTool(BaseTool):
             "--oF", self._raw_log_path,
         ]
 
+        if self.wildcard_size is not None:
+            cmd += ["--hs", str(self.wildcard_size)]
+
         for key, val in self.headers.items():
             cmd += ["-H", f"{key}: {val}"]
 

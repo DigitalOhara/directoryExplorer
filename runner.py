@@ -21,7 +21,7 @@ from tools import TOOL_REGISTRY
 from tools.base import Finding, ToolResult
 from utils.logging_utils import get_logger
 from utils.network import Target
-from utils.fingerprint import fingerprint_target, parse_robots_txt
+from utils.fingerprint import fingerprint_target, parse_robots_txt, detect_wildcard
 
 log = get_logger()
 
@@ -140,6 +140,7 @@ def scan_target(
 
     # Fingerprint first
     fingerprint = {}
+    wildcard_size: Optional[int] = None
     try:
         log.info("[%s] Fingerprinting target…", target.name)
         fingerprint = fingerprint_target(
@@ -151,6 +152,19 @@ def scan_target(
         robots_paths = parse_robots_txt(target.url, timeout=args.timeout, proxy=args.proxy)
         fingerprint["robots_paths"] = robots_paths
         _save_fingerprint(tdir, fingerprint)
+
+        # Detect wildcard: server returns success for random non-existent paths.
+        wildcard_size = detect_wildcard(
+            target.url,
+            status_filter=args.status_filter or [200, 301, 302, 307, 308],
+            timeout=args.timeout,
+            proxy=args.proxy,
+        )
+        if wildcard_size is not None:
+            log.warning(
+                "[%s] Wildcard response detected (size=%d) — tools will exclude this size",
+                target.name, wildcard_size,
+            )
     except Exception as exc:
         log.warning("[%s] Fingerprinting failed: %s", target.name, exc)
 
@@ -165,7 +179,7 @@ def scan_target(
         # dirsearch uses the original dicc.txt (handles %EXT% natively);
         # every other tool uses the cleaned wordlist (%EXT% entries stripped).
         wordlist_for_tool = wl.dirsearch_path if tool_name == "dirsearch" else wl.clean_path
-        tool_kwargs = _build_tool_kwargs(args, target.url, tdir, wordlist_for_tool)
+        tool_kwargs = _build_tool_kwargs(args, target.url, tdir, wordlist_for_tool, wildcard_size)
 
         tool = ToolClass(**tool_kwargs)
         if not tool.is_available():
@@ -342,7 +356,8 @@ def _build_headers(args: Any) -> Dict[str, str]:
 
 
 def _build_tool_kwargs(
-    args: Any, target_url: str, tdir: str, wordlist_path: str
+    args: Any, target_url: str, tdir: str, wordlist_path: str,
+    wildcard_size: Optional[int] = None,
 ) -> Dict:
     import random
     from config import USER_AGENTS, DEFAULT_USER_AGENT
@@ -372,6 +387,7 @@ def _build_tool_kwargs(
         recursion_depth=args.recursion_depth,
         status_filter=args.status_filter or [200, 301, 302, 307, 308],
         verbose=args.verbose,
+        wildcard_size=wildcard_size,
     )
 
 

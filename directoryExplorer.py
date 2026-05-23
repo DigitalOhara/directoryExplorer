@@ -9,8 +9,14 @@ import os
 import sys
 import textwrap
 import time
+import warnings
 from pathlib import Path
 from typing import List, Optional
+
+# Suppress urllib3 TLS warnings — tools use -k / --no-tls-validation for the
+# actual scan; the fingerprinting requests are internal and the noise is not
+# actionable from the terminal.
+warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 # ── Dependency guard (runs before everything else) ─────────────────────────────
 def _check_python_version():

@@ -29,7 +29,8 @@ class FfufTool(BaseTool):
             "-timeout", str(self.timeout),
             "-o", self._json_out,
             "-of", "json",
-            "-s",           # silent (no banner)
+            # No -s (silent): with -s nothing goes to stdout so the terminal
+            # looks frozen. Results are still captured from the JSON output file.
         ]
 
         if self.extensions:
@@ -56,9 +57,10 @@ class FfufTool(BaseTool):
             "-mc", ",".join(str(s) for s in self.status_filter),
         ]
 
-        # Rate control via delay
+        if self.wildcard_size is not None:
+            cmd += ["-fs", str(self.wildcard_size)]
+
         if self.delay > 0:
-            # ffuf -p accepts delay in seconds (float)
             cmd += ["-p", str(self.delay)]
 
         if self.recursion_depth > 0:

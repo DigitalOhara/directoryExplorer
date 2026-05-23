@@ -31,16 +31,14 @@ class FeroxbusterTool(BaseTool):
             "--wordlist", self.wordlist,
             "--threads", str(self.threads),
             "--timeout", str(self.timeout),
-            "--output", self._raw_log_path,
-            "--no-recursion" if self.recursion_depth == 0 else "",
+            # No --output / --silent: with both set nothing goes to stdout.
+            # base.py captures stdout and writes the raw log file itself.
             "--quiet",
-            "--silent",
         ]
 
-        # Remove empty strings
-        cmd = [c for c in cmd if c]
-
-        if self.recursion_depth > 0:
+        if self.recursion_depth == 0:
+            cmd += ["--no-recursion"]
+        else:
             cmd += ["--depth", str(self.recursion_depth)]
 
         if self.extensions:
@@ -69,9 +67,11 @@ class FeroxbusterTool(BaseTool):
             ",".join(str(s) for s in self.status_filter),
         ]
 
+        if self.wildcard_size is not None:
+            cmd += ["--filter-size", str(self.wildcard_size)]
+
         if self.delay > 0:
-            # feroxbuster --rate-limit accepts requests/second
-            rate = max(1, int(1.0 / self.delay)) if self.delay > 0 else 100
+            rate = max(1, int(1.0 / self.delay))
             cmd += ["--rate-limit", str(rate)]
 
         return cmd

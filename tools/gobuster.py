@@ -1,16 +1,16 @@
 """
 Gobuster tool wrapper.
-Output line format: /path (Status: 200) [Size: 1234]
+Output line format (after stripping ANSI): /path (Status: 200) [Size: 1234]
 """
 
 import re
-from typing import Dict, List, Optional
+from typing import List
 
-from .base import BaseTool, Finding
+from .base import BaseTool, Finding, _ANSI_RE
 
 
-# Example: /admin                (Status: 200) [Size: 4096]
-# or:      /backup               (Status: 301) [Size: 220] [--> /backup/]
+# Example (after ANSI strip): /admin                (Status: 200) [Size: 4096]
+# or:                          /backup               (Status: 301) [Size: 220] [--> /backup/]
 _LINE_RE = re.compile(
     r"^(?P<path>/\S*)\s+\(Status:\s*(?P<status>\d+)\)"
     r"(?:\s+\[Size:\s*(?P<size>\d+)\])?",
@@ -28,9 +28,9 @@ class GobusterTool(BaseTool):
             "-w", self.wordlist,
             "-t", str(self.threads),
             "--timeout", f"{self.timeout}s",
-            "-o", self._raw_log_path,
-            "-q",               # quiet — machine-readable output
-            "--no-progress",
+            # No -o: we capture stdout and write the file ourselves.
+            # No -q: with -q the findings only go to -o and stdout is empty.
+            "--no-progress",    # suppress the no-newline progress bar
         ]
 
         if self.extensions:
@@ -51,12 +51,16 @@ class GobusterTool(BaseTool):
         if self.follow_redirects:
             cmd += ["-r"]
 
-        # status-codes and status-codes-blacklist are mutually exclusive in gobuster;
-        # clear the blacklist (default: "404") so --status-codes takes effect.
+        # status-codes and status-codes-blacklist are mutually exclusive in
+        # gobuster; pass an empty blacklist so --status-codes takes effect.
         cmd += [
             "--status-codes", ",".join(str(s) for s in self.status_filter),
             "--status-codes-blacklist", "",
         ]
+
+        # Wildcard: server returns success for non-existent paths; exclude by size.
+        if self.wildcard_size is not None:
+            cmd += ["--exclude-length", str(self.wildcard_size)]
 
         # Delay (gobuster uses milliseconds)
         if self.delay > 0:
@@ -68,8 +72,9 @@ class GobusterTool(BaseTool):
     def parse_output(self, raw: str, log_path: str) -> List[Finding]:
         findings: List[Finding] = []
         for line in raw.splitlines():
-            line = line.strip()
-            if not line or line.startswith("["):
+            # Strip ANSI codes gobuster emits (\x1b[2K prefix on finding lines)
+            line = _ANSI_RE.sub("", line).strip()
+            if not line or line.startswith("[") or line.startswith("="):
                 continue
             m = _LINE_RE.match(line)
             if m:
