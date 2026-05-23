@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -140,17 +141,32 @@ class BaseTool(ABC):
                 encoding="utf-8",
                 errors="replace",
             )
-            stdout, stderr = proc.communicate(timeout=None)
+
+            # Drain stderr in a background thread so it never blocks stdout.
+            stderr_lines: List[str] = []
+            def _drain_stderr():
+                for ln in proc.stderr:
+                    stderr_lines.append(ln)
+            stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+            stderr_thread.start()
+
+            # Stream stdout line-by-line so the user sees live progress.
+            stdout_lines: List[str] = []
+            for line in proc.stdout:
+                stdout_lines.append(line)
+                cleaned = line.rstrip()
+                if cleaned:
+                    # Strip common ANSI cursor-clear prefixes (\x1b[2K, \r)
+                    display = cleaned.lstrip("\r").lstrip("\x1b[2K").lstrip()
+                    if display:
+                        print(f"  \033[90m{display}\033[0m")
+
+            proc.wait()
+            stderr_thread.join()
+
             result.returncode = proc.returncode
-            result.raw_output = stdout
-            result.stderr_output = stderr
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            stdout, stderr = proc.communicate()
-            result.error = f"{self.name} timed out"
-            log.error(result.error)
-            result.raw_output = stdout or ""
-            result.stderr_output = stderr or ""
+            result.raw_output = "".join(stdout_lines)
+            result.stderr_output = "".join(stderr_lines)
         except FileNotFoundError:
             result.error = f"{self.name} binary not found"
             log.error(result.error)
