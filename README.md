@@ -10,7 +10,7 @@
 
 ## Overview
 
-`directoryExplorer` orchestrates multiple industry-standard web content discovery tools — **gobuster**, **ffuf**, **feroxbuster**, **wfuzz**, and **dirb** — into a single, unified workflow. It normalizes outputs, deduplicates findings, and generates professional reports in HTML, CSV, TXT, and JSON formats.
+`directoryExplorer` orchestrates industry-standard web content discovery tools — **gobuster** and **dirsearch** — into a single, unified workflow. It normalizes outputs, deduplicates findings, and generates professional reports in HTML, CSV, TXT, and JSON formats.
 
 ### Key Features
 
@@ -45,13 +45,10 @@ pip3 install -r requirements.txt
 
 # 4. Install external tools (Kali already includes most)
 sudo apt update
-sudo apt install -y gobuster ffuf feroxbuster wfuzz dirb
-
-# feroxbuster (if not in apt)
-curl -sL https://raw.githubusercontent.com/epi052/feroxbuster/main/install-nix.sh | bash
+sudo apt install -y gobuster dirsearch
 
 # Verify tools are available
-which gobuster ffuf feroxbuster wfuzz dirb
+which gobuster dirsearch
 ```
 
 ### Other Linux / macOS
@@ -60,17 +57,8 @@ which gobuster ffuf feroxbuster wfuzz dirb
 # gobuster
 go install github.com/OJ/gobuster/v3@latest
 
-# ffuf
-go install github.com/ffuf/ffuf/v2@latest
-
-# feroxbuster
-cargo install feroxbuster
-
-# wfuzz
-pip3 install wfuzz
-
-# dirb (Linux)
-sudo apt install dirb
+# dirsearch
+pip3 install dirsearch
 ```
 
 ---
@@ -101,9 +89,9 @@ python3 directoryExplorer.py -t https://app.example.com \
 python3 directoryExplorer.py -t https://example.com \
     --proxy http://127.0.0.1:8080
 
-# Run only specific tools
+# Run only a specific tool
 python3 directoryExplorer.py -t https://example.com \
-    --tool ffuf gobuster
+    --tool gobuster
 
 # Aggressive scan (more threads, no delay)
 python3 directoryExplorer.py -t https://example.com \
@@ -172,7 +160,7 @@ python3 directoryExplorer.py -f targets.txt --resume
 
 | Flag | Description |
 |------|-------------|
-| `--tool TOOL...` | Run only: `gobuster ffuf feroxbuster wfuzz dirb` |
+| `--tool TOOL...` | Run only: `gobuster dirsearch` |
 
 ### Output
 
@@ -230,8 +218,7 @@ output/
 │   ├── example.com/
 │   │   ├── raw/
 │   │   │   ├── gobuster_output.txt
-│   │   │   ├── ffuf_output.txt
-│   │   │   └── ffuf_results.json
+│   │   │   └── dirsearch_output.txt
 │   │   ├── parsed/
 │   │   │   ├── findings.json
 │   │   │   ├── fingerprint.json
@@ -243,7 +230,7 @@ output/
 │   │   │   └── summary.txt
 │   │   └── logs/
 │   │       ├── directoryExplorer.log
-│   │       └── ffuf_stderr.txt
+│   │       └── dirsearch_stderr.txt
 │   └── staging.example.com/
 │       └── …
 └── logs/
@@ -262,11 +249,11 @@ Every normalized finding has the following structure:
   "url":           "https://example.com/admin",
   "status":        200,
   "length":        4096,
-  "tool":          "ffuf,gobuster",
+  "tool":          "gobuster,dirsearch",
   "response_time": "0.234s",
   "content_type":  "text/html",
   "timestamp":     "2024-01-15T14:22:01+00:00",
-  "source_log":    "output/targets/example.com/raw/ffuf_results.json",
+  "source_log":    "output/targets/example.com/raw/gobuster_output.txt",
   "confidence":    1.0
 }
 ```
@@ -308,10 +295,7 @@ directoryExplorer/
 │   ├── __init__.py
 │   ├── base.py              # BaseTool abstract class + Finding dataclass
 │   ├── gobuster.py
-│   ├── ffuf.py
-│   ├── feroxbuster.py
-│   ├── wfuzz.py
-│   └── dirb.py
+│   └── dirsearch.py
 ├── utils/
 │   ├── __init__.py
 │   ├── logging_utils.py     # Rotating file + coloured console logging
