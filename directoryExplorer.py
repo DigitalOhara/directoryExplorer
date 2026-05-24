@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=textwrap.dedent("""\
             directoryExplorer — Web content discovery orchestration tool.
-            Supports: gobuster, ffuf, feroxbuster, wfuzz, dirb.
+            Supports: gobuster, dirsearch.
 
             ⚠  For authorized penetration testing ONLY.
         """),
@@ -76,9 +76,9 @@ def build_parser() -> argparse.ArgumentParser:
                     -H "Authorization: Bearer TOKEN" \\
                     --proxy http://127.0.0.1:8080
 
-              Run only ffuf and gobuster, HTML + JSON output:
+              Run only gobuster, HTML + JSON output:
                 python directoryExplorer.py -t https://example.com \\
-                    --tool ffuf gobuster --html-report --json
+                    --tool gobuster --html-report --json
         """),
     )
 
