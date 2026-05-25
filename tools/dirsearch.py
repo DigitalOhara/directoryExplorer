@@ -8,6 +8,8 @@ JSON result structure:
 import json
 import os
 import re
+import shutil
+import subprocess
 from typing import List
 
 from .base import BaseTool, Finding
@@ -77,6 +79,26 @@ class DirsearchTool(BaseTool):
         self._json_out = os.path.join(
             os.path.dirname(self._raw_log_path), "dirsearch_results.json"
         )
+
+    def is_available(self) -> bool:
+        if not shutil.which("dirsearch"):
+            return False
+        try:
+            r = subprocess.run(
+                ["dirsearch", "--version"],
+                capture_output=True, text=True, timeout=5,
+            )
+            combined = r.stdout + r.stderr
+            if "pkg_resources" in combined or "No module named" in combined:
+                from utils.logging_utils import get_logger
+                get_logger().error(
+                    "[dirsearch] Startup failed — missing 'pkg_resources'. "
+                    "Fix: pip3 install setuptools  (or: apt install python3-pkg-resources)"
+                )
+                return False
+            return True
+        except Exception:
+            return False
 
     # Dirsearch-specific rate-limiting defaults that help bypass WAFs/Cloudflare.
     # These cap requests regardless of the global --threads / --delay values.

@@ -101,9 +101,9 @@ TOOL_INSTALL_RECIPES = {
         "go install github.com/OJ/gobuster/v3@latest && cp ~/go/bin/gobuster /usr/local/bin/gobuster",
     ],
     "dirsearch": [
-        "apt-get install -y dirsearch",
-        "pip3 install dirsearch",
-        "pip install dirsearch",
+        "pip3 install setuptools dirsearch",
+        "apt-get install -y python3-pkg-resources dirsearch",
+        "pip install setuptools dirsearch",
     ],
 }
 
