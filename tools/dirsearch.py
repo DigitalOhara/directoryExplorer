@@ -115,18 +115,30 @@ def _resolve_dirsearch_cmd() -> Optional[List[str]]:
     if binary:
         candidates.append(["dirsearch"])
 
+    # When the command uses sys.executable + a system script, the virtualenv
+    # Python won't see system dist-packages (e.g. pkg_resources). Inject the
+    # system dist-packages dir (grandparent of the script) into PYTHONPATH.
+    def _build_env(cmd: List[str]) -> dict:
+        env = os.environ.copy()
+        if len(cmd) == 2 and cmd[0] == sys.executable and cmd[1].endswith(".py"):
+            sys_dist = os.path.dirname(os.path.dirname(cmd[1]))
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = (sys_dist + ":" + existing) if existing else sys_dist
+        return env
+
     for cmd in candidates:
         try:
+            env = _build_env(cmd)
             r = subprocess.run(
-                cmd + ["--version"], capture_output=True, text=True, timeout=5
+                cmd + ["--version"], capture_output=True, text=True,
+                timeout=5, env=env,
             )
             if r.returncode == 0:
                 _log.debug("[dirsearch] using command: %s", " ".join(cmd))
                 return cmd
             _log.debug(
-                "[dirsearch] command failed (rc=%d): %s\n  stdout: %s\n  stderr: %s",
-                r.returncode, " ".join(cmd),
-                r.stdout.strip()[:200], r.stderr.strip()[:200],
+                "[dirsearch] command failed (rc=%d): %s\n  stderr: %s",
+                r.returncode, " ".join(cmd), r.stderr.strip()[:200],
             )
         except Exception as exc:
             _log.debug("[dirsearch] command exception: %s — %s", " ".join(cmd), exc)
@@ -149,9 +161,31 @@ class DirsearchTool(BaseTool):
             os.path.dirname(self._raw_log_path), "dirsearch_results.json"
         )
         self._cmd_prefix: Optional[List[str]] = _resolve_dirsearch_cmd()
+        # PYTHONPATH needed so virtualenv Python can find system pkg_resources
+        self._run_env: Optional[dict] = None
+        if self._cmd_prefix and len(self._cmd_prefix) == 2 \
+                and self._cmd_prefix[0] == sys.executable \
+                and self._cmd_prefix[1].endswith(".py"):
+            sys_dist = os.path.dirname(os.path.dirname(self._cmd_prefix[1]))
+            env = os.environ.copy()
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = (sys_dist + ":" + existing) if existing else sys_dist
+            self._run_env = env
 
     def is_available(self) -> bool:
         return self._cmd_prefix is not None
+
+    def run(self):
+        if self._run_env:
+            import os as _os
+            old = _os.environ.copy()
+            _os.environ.update(self._run_env)
+            try:
+                return super().run()
+            finally:
+                _os.environ.clear()
+                _os.environ.update(old)
+        return super().run()
 
     # Dirsearch-specific rate-limiting defaults that help bypass WAFs/Cloudflare.
     # These cap requests regardless of the global --threads / --delay values.
