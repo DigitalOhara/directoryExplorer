@@ -123,7 +123,13 @@ def _resolve_dirsearch_cmd() -> Optional[List[str]]:
             if r.returncode == 0:
                 _log.debug("[dirsearch] using command: %s", " ".join(cmd))
                 return cmd
-        except Exception:
+            _log.debug(
+                "[dirsearch] command failed (rc=%d): %s\n  stdout: %s\n  stderr: %s",
+                r.returncode, " ".join(cmd),
+                r.stdout.strip()[:200], r.stderr.strip()[:200],
+            )
+        except Exception as exc:
+            _log.debug("[dirsearch] command exception: %s — %s", " ".join(cmd), exc)
             continue
 
     _log.error(
