@@ -72,24 +72,65 @@ def _parse_size(raw: str) -> int:
         return 0
 
 
-def _find_dirsearch_script() -> Optional[str]:
+_DIRSEARCH_SCRIPT_CANDIDATES = [
+    "/usr/lib/python3/dist-packages/dirsearch/dirsearch.py",
+    "/usr/local/lib/python3/dist-packages/dirsearch/dirsearch.py",
+    "/usr/share/dirsearch/dirsearch.py",
+    "/opt/dirsearch/dirsearch.py",
+]
+
+
+def _resolve_dirsearch_cmd() -> Optional[List[str]]:
     """
-    Read the dirsearch wrapper binary to find the actual .py script path.
-    The apt-installed wrapper is: exec python3 /path/to/dirsearch.py "$@"
-    Returns the script path, or None if it can't be determined.
+    Find a working command prefix to invoke dirsearch, trying multiple strategies:
+    1. Parse the wrapper binary to extract the .py script path, run with sys.executable.
+    2. Try known common script paths with sys.executable.
+    3. Fall back to the bare 'dirsearch' binary.
+    Returns a list like [sys.executable, '/path/to/dirsearch.py'] or ['dirsearch'],
+    or None if nothing works.
     """
+    from utils.logging_utils import get_logger
+    _log = get_logger()
+
+    candidates: List[List[str]] = []
+
+    # Strategy 1 — parse wrapper binary for the embedded .py path
     binary = shutil.which("dirsearch")
-    if not binary:
-        return None
-    try:
-        with open(binary, "r", encoding="utf-8", errors="ignore") as fh:
-            content = fh.read(512)
-        m = re.search(r'python3?\s+(/\S+dirsearch\.py)', content)
-        if m:
-            script = m.group(1)
-            return script if os.path.isfile(script) else None
-    except Exception:
-        pass
+    if binary:
+        try:
+            with open(binary, "r", encoding="utf-8", errors="ignore") as fh:
+                content = fh.read(512)
+            m = re.search(r'python3?\s+"?(/[^\s"]+dirsearch\.py)"?', content)
+            if m and os.path.isfile(m.group(1)):
+                candidates.append([sys.executable, m.group(1)])
+        except Exception:
+            pass
+
+    # Strategy 2 — well-known install paths
+    for path in _DIRSEARCH_SCRIPT_CANDIDATES:
+        if os.path.isfile(path):
+            candidates.append([sys.executable, path])
+
+    # Strategy 3 — bare binary last (system Python may lack pkg_resources)
+    if binary:
+        candidates.append(["dirsearch"])
+
+    for cmd in candidates:
+        try:
+            r = subprocess.run(
+                cmd + ["--version"], capture_output=True, text=True, timeout=5
+            )
+            if r.returncode == 0:
+                _log.debug("[dirsearch] using command: %s", " ".join(cmd))
+                return cmd
+        except Exception:
+            continue
+
+    _log.error(
+        "[dirsearch] No working invocation found. "
+        "Tried: %s. Install setuptools: pip3 install setuptools",
+        [" ".join(c) for c in candidates],
+    )
     return None
 
 
@@ -101,18 +142,10 @@ class DirsearchTool(BaseTool):
         self._json_out = os.path.join(
             os.path.dirname(self._raw_log_path), "dirsearch_results.json"
         )
-        self._script = _find_dirsearch_script()
+        self._cmd_prefix: Optional[List[str]] = _resolve_dirsearch_cmd()
 
     def is_available(self) -> bool:
-        if not shutil.which("dirsearch"):
-            return False
-        cmd = [sys.executable, self._script, "--version"] if self._script \
-              else ["dirsearch", "--version"]
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-            return r.returncode == 0
-        except Exception:
-            return False
+        return self._cmd_prefix is not None
 
     # Dirsearch-specific rate-limiting defaults that help bypass WAFs/Cloudflare.
     # These cap requests regardless of the global --threads / --delay values.
@@ -126,14 +159,8 @@ class DirsearchTool(BaseTool):
         threads = min(self.threads, self._DEFAULT_THREADS)
         delay   = max(self.delay,   self._DEFAULT_DELAY)
 
-        # Use the virtualenv Python + the script directly when available, so the
-        # correct interpreter (with setuptools/pkg_resources) is always used
-        # regardless of what the system-wide dirsearch wrapper calls.
-        dirsearch_cmd = [sys.executable, self._script] if self._script \
-                        else ["dirsearch"]
-
         cmd = [
-            *dirsearch_cmd,
+            *(self._cmd_prefix or ["dirsearch"]),
             "-u", self.target,
             "-w", self.wordlist,
             "--threads", str(threads),
