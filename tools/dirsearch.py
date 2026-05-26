@@ -10,7 +10,8 @@ import os
 import re
 import shutil
 import subprocess
-from typing import List
+import sys
+from typing import List, Optional
 
 from .base import BaseTool, Finding
 
@@ -71,6 +72,27 @@ def _parse_size(raw: str) -> int:
         return 0
 
 
+def _find_dirsearch_script() -> Optional[str]:
+    """
+    Read the dirsearch wrapper binary to find the actual .py script path.
+    The apt-installed wrapper is: exec python3 /path/to/dirsearch.py "$@"
+    Returns the script path, or None if it can't be determined.
+    """
+    binary = shutil.which("dirsearch")
+    if not binary:
+        return None
+    try:
+        with open(binary, "r", encoding="utf-8", errors="ignore") as fh:
+            content = fh.read(512)
+        m = re.search(r'python3?\s+(/\S+dirsearch\.py)', content)
+        if m:
+            script = m.group(1)
+            return script if os.path.isfile(script) else None
+    except Exception:
+        pass
+    return None
+
+
 class DirsearchTool(BaseTool):
     name = "dirsearch"
 
@@ -79,48 +101,18 @@ class DirsearchTool(BaseTool):
         self._json_out = os.path.join(
             os.path.dirname(self._raw_log_path), "dirsearch_results.json"
         )
+        self._script = _find_dirsearch_script()
 
     def is_available(self) -> bool:
         if not shutil.which("dirsearch"):
             return False
+        cmd = [sys.executable, self._script, "--version"] if self._script \
+              else ["dirsearch", "--version"]
         try:
-            r = subprocess.run(
-                ["dirsearch", "--version"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if r.returncode == 0:
-                return True
-            if "No module named" in (r.stdout + r.stderr):
-                return self._fix_pkg_resources()
-            return False
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            return r.returncode == 0
         except Exception:
             return False
-
-    def _fix_pkg_resources(self) -> bool:
-        from utils.logging_utils import get_logger
-        _log = get_logger()
-        _log.warning("[dirsearch] Missing 'pkg_resources' — attempting auto-fix…")
-        for cmd in (
-            ["pip3", "install", "--quiet", "setuptools"],
-            ["pip",  "install", "--quiet", "setuptools"],
-            ["apt-get", "install", "-y", "python3-pkg-resources"],
-        ):
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                if result.returncode == 0:
-                    r2 = subprocess.run(
-                        ["dirsearch", "--version"],
-                        capture_output=True, text=True, timeout=5,
-                    )
-                    if r2.returncode == 0:
-                        _log.info("[dirsearch] Auto-fix succeeded via: %s", " ".join(cmd))
-                        return True
-            except Exception:
-                continue
-        _log.error(
-            "[dirsearch] Auto-fix failed. Run manually: pip3 install setuptools"
-        )
-        return False
 
     # Dirsearch-specific rate-limiting defaults that help bypass WAFs/Cloudflare.
     # These cap requests regardless of the global --threads / --delay values.
@@ -134,8 +126,14 @@ class DirsearchTool(BaseTool):
         threads = min(self.threads, self._DEFAULT_THREADS)
         delay   = max(self.delay,   self._DEFAULT_DELAY)
 
+        # Use the virtualenv Python + the script directly when available, so the
+        # correct interpreter (with setuptools/pkg_resources) is always used
+        # regardless of what the system-wide dirsearch wrapper calls.
+        dirsearch_cmd = [sys.executable, self._script] if self._script \
+                        else ["dirsearch"]
+
         cmd = [
-            "dirsearch",
+            *dirsearch_cmd,
             "-u", self.target,
             "-w", self.wordlist,
             "--threads", str(threads),
