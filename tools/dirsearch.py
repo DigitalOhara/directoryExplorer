@@ -89,7 +89,7 @@ class DirsearchTool(BaseTool):
                 capture_output=True, text=True, timeout=5,
             )
             combined = r.stdout + r.stderr
-            if "pkg_resources" in combined or "No module named" in combined:
+            if r.returncode != 0 and "No module named" in combined:
                 from utils.logging_utils import get_logger
                 get_logger().error(
                     "[dirsearch] Startup failed — missing 'pkg_resources'. "
