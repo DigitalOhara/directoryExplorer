@@ -88,17 +88,39 @@ class DirsearchTool(BaseTool):
                 ["dirsearch", "--version"],
                 capture_output=True, text=True, timeout=5,
             )
-            combined = r.stdout + r.stderr
-            if r.returncode != 0 and "No module named" in combined:
-                from utils.logging_utils import get_logger
-                get_logger().error(
-                    "[dirsearch] Startup failed — missing 'pkg_resources'. "
-                    "Fix: pip3 install setuptools  (or: apt install python3-pkg-resources)"
-                )
-                return False
-            return True
+            if r.returncode == 0:
+                return True
+            if "No module named" in (r.stdout + r.stderr):
+                return self._fix_pkg_resources()
+            return False
         except Exception:
             return False
+
+    def _fix_pkg_resources(self) -> bool:
+        from utils.logging_utils import get_logger
+        _log = get_logger()
+        _log.warning("[dirsearch] Missing 'pkg_resources' — attempting auto-fix…")
+        for cmd in (
+            ["pip3", "install", "--quiet", "setuptools"],
+            ["pip",  "install", "--quiet", "setuptools"],
+            ["apt-get", "install", "-y", "python3-pkg-resources"],
+        ):
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if result.returncode == 0:
+                    r2 = subprocess.run(
+                        ["dirsearch", "--version"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    if r2.returncode == 0:
+                        _log.info("[dirsearch] Auto-fix succeeded via: %s", " ".join(cmd))
+                        return True
+            except Exception:
+                continue
+        _log.error(
+            "[dirsearch] Auto-fix failed. Run manually: pip3 install setuptools"
+        )
+        return False
 
     # Dirsearch-specific rate-limiting defaults that help bypass WAFs/Cloudflare.
     # These cap requests regardless of the global --threads / --delay values.
